@@ -36,10 +36,11 @@
 #include <mpath_persist.h>
 #endif
 
-#include "qapi/error.h"
 #include "qemu-common.h"
+#include "qapi/error.h"
 #include "qemu/cutils.h"
 #include "qemu/main-loop.h"
+#include "qemu/module.h"
 #include "qemu/error-report.h"
 #include "qemu/config-file.h"
 #include "qemu/bswap.h"
@@ -895,6 +896,7 @@ int main(int argc, char **argv)
 
     signal(SIGPIPE, SIG_IGN);
 
+    error_init(argv[0]);
     module_call_init(MODULE_INIT_TRACE);
     module_call_init(MODULE_INIT_QOM);
     qemu_add_opts(&qemu_trace_opts);
@@ -1003,7 +1005,8 @@ int main(int argc, char **argv)
             .u.q_unix.path = socket_path,
         };
         server_ioc = qio_channel_socket_new();
-        if (qio_channel_socket_listen_sync(server_ioc, &saddr, &local_err) < 0) {
+        if (qio_channel_socket_listen_sync(server_ioc, &saddr,
+                                           1, &local_err) < 0) {
             object_unref(OBJECT(server_ioc));
             error_report_err(local_err);
             return 1;

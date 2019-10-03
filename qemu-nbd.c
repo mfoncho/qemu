@@ -21,12 +21,14 @@
 #include <libgen.h>
 #include <pthread.h>
 
+#include "qemu-common.h"
 #include "qapi/error.h"
 #include "qemu/cutils.h"
 #include "sysemu/block-backend.h"
 #include "block/block_int.h"
 #include "block/nbd.h"
 #include "qemu/main-loop.h"
+#include "qemu/module.h"
 #include "qemu/option.h"
 #include "qemu/error-report.h"
 #include "qemu/config-file.h"
@@ -59,6 +61,7 @@
 #define QEMU_NBD_OPT_IMAGE_OPTS    262
 #define QEMU_NBD_OPT_FORK          263
 #define QEMU_NBD_OPT_TLSAUTHZ      264
+#define QEMU_NBD_OPT_PID_FILE      265
 
 #define MBR_SIZE 512
 
@@ -111,6 +114,7 @@ static void usage(const char *name)
 "                            specify tracing options\n"
 "  --fork                    fork off the server process and exit the parent\n"
 "                            once the server is running\n"
+"  --pid-file=PATH           store the server's process ID in the given file\n"
 #if HAVE_NBD_DEVICE
 "\n"
 "Kernel NBD client support:\n"
@@ -279,37 +283,26 @@ static int qemu_nbd_client_list(SocketAddress *saddr, QCryptoTLSCreds *tls,
             printf("  description: %s\n", list[i].description);
         }
         if (list[i].flags & NBD_FLAG_HAS_FLAGS) {
+            static const char *const flag_names[] = {
+                [NBD_FLAG_READ_ONLY_BIT]            = "readonly",
+                [NBD_FLAG_SEND_FLUSH_BIT]           = "flush",
+                [NBD_FLAG_SEND_FUA_BIT]             = "fua",
+                [NBD_FLAG_ROTATIONAL_BIT]           = "rotational",
+                [NBD_FLAG_SEND_TRIM_BIT]            = "trim",
+                [NBD_FLAG_SEND_WRITE_ZEROES_BIT]    = "zeroes",
+                [NBD_FLAG_SEND_DF_BIT]              = "df",
+                [NBD_FLAG_CAN_MULTI_CONN_BIT]       = "multi",
+                [NBD_FLAG_SEND_RESIZE_BIT]          = "resize",
+                [NBD_FLAG_SEND_CACHE_BIT]           = "cache",
+                [NBD_FLAG_SEND_FAST_ZERO_BIT]       = "fast-zero",
+            };
+
             printf("  size:  %" PRIu64 "\n", list[i].size);
             printf("  flags: 0x%x (", list[i].flags);
-            if (list[i].flags & NBD_FLAG_READ_ONLY) {
-                printf(" readonly");
-            }
-            if (list[i].flags & NBD_FLAG_SEND_FLUSH) {
-                printf(" flush");
-            }
-            if (list[i].flags & NBD_FLAG_SEND_FUA) {
-                printf(" fua");
-            }
-            if (list[i].flags & NBD_FLAG_ROTATIONAL) {
-                printf(" rotational");
-            }
-            if (list[i].flags & NBD_FLAG_SEND_TRIM) {
-                printf(" trim");
-            }
-            if (list[i].flags & NBD_FLAG_SEND_WRITE_ZEROES) {
-                printf(" zeroes");
-            }
-            if (list[i].flags & NBD_FLAG_SEND_DF) {
-                printf(" df");
-            }
-            if (list[i].flags & NBD_FLAG_CAN_MULTI_CONN) {
-                printf(" multi");
-            }
-            if (list[i].flags & NBD_FLAG_SEND_RESIZE) {
-                printf(" resize");
-            }
-            if (list[i].flags & NBD_FLAG_SEND_CACHE) {
-                printf(" cache");
+            for (size_t bit = 0; bit < ARRAY_SIZE(flag_names); bit++) {
+                if (flag_names[bit] && (list[i].flags & (1 << bit))) {
+                    printf(" %s", flag_names[bit]);
+                }
             }
             printf(" )\n");
         }
@@ -370,7 +363,7 @@ static void *nbd_client_thread(void *arg)
         goto out;
     }
 
-    ret = nbd_receive_negotiate(QIO_CHANNEL(sioc),
+    ret = nbd_receive_negotiate(NULL, QIO_CHANNEL(sioc),
                                 NULL, NULL, NULL, &info, &local_error);
     if (ret < 0) {
         if (local_error) {
@@ -608,7 +601,7 @@ int main(int argc, char **argv)
     BlockBackend *blk;
     BlockDriverState *bs;
     uint64_t dev_offset = 0;
-    uint16_t nbdflags = 0;
+    bool readonly = false;
     bool disconnect = false;
     const char *bindto = NULL;
     const char *port = NULL;
@@ -651,6 +644,7 @@ int main(int argc, char **argv)
         { "image-opts", no_argument, NULL, QEMU_NBD_OPT_IMAGE_OPTS },
         { "trace", required_argument, NULL, 'T' },
         { "fork", no_argument, NULL, QEMU_NBD_OPT_FORK },
+        { "pid-file", required_argument, NULL, QEMU_NBD_OPT_PID_FILE },
         { NULL, 0, NULL, 0 }
     };
     int ch;
@@ -677,6 +671,7 @@ int main(int argc, char **argv)
     bool list = false;
     int old_stderr = -1;
     unsigned socket_activation;
+    const char *pid_file_name = NULL;
 
     /* The client thread uses SIGTERM to interrupt the server.  A signal
      * handler ensures that "qemu-nbd -v -c" exits with a nice status code.
@@ -690,8 +685,8 @@ int main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
 #endif
 
+    error_init(argv[0]);
     module_call_init(MODULE_INIT_TRACE);
-    error_set_progname(argv[0]);
     qcrypto_init(&error_fatal);
 
     module_call_init(MODULE_INIT_QOM);
@@ -788,7 +783,7 @@ int main(int argc, char **argv)
             }
             /* fall through */
         case 'r':
-            nbdflags |= NBD_FLAG_READ_ONLY;
+            readonly = true;
             flags &= ~BDRV_O_RDWR;
             break;
         case 'P':
@@ -875,6 +870,9 @@ int main(int argc, char **argv)
             break;
         case 'L':
             list = true;
+            break;
+        case QEMU_NBD_OPT_PID_FILE:
+            pid_file_name = optarg;
             break;
         }
     }
@@ -1007,10 +1005,11 @@ int main(int argc, char **argv)
             exit(EXIT_FAILURE);
         } else if (pid == 0) {
             close(stderr_fd[0]);
+
+            old_stderr = dup(STDERR_FILENO);
             ret = qemu_daemon(1, 0);
 
             /* Temporarily redirect stderr to the parent's pipe...  */
-            old_stderr = dup(STDERR_FILENO);
             dup2(stderr_fd[1], STDERR_FILENO);
             if (ret < 0) {
                 error_report("Failed to daemonize: %s", strerror(errno));
@@ -1056,7 +1055,7 @@ int main(int argc, char **argv)
     server = qio_net_listener_new();
     if (socket_activation == 0) {
         saddr = nbd_build_socket_address(sockpath, bindto, port);
-        if (qio_net_listener_open_sync(server, saddr, &local_err) < 0) {
+        if (qio_net_listener_open_sync(server, saddr, 1, &local_err) < 0) {
             object_unref(OBJECT(server));
             error_report_err(local_err);
             exit(EXIT_FAILURE);
@@ -1175,7 +1174,7 @@ int main(int argc, char **argv)
     }
 
     export = nbd_export_new(bs, dev_offset, fd_size, export_name,
-                            export_description, bitmap, nbdflags,
+                            export_description, bitmap, readonly, shared > 1,
                             nbd_export_closed, writethrough, NULL,
                             &error_fatal);
 
@@ -1195,6 +1194,10 @@ int main(int argc, char **argv)
     }
 
     nbd_update_server_watch();
+
+    if (pid_file_name) {
+        qemu_write_pidfile(pid_file_name, &error_fatal);
+    }
 
     /* now when the initialization is (almost) complete, chdir("/")
      * to free any busy filesystems */

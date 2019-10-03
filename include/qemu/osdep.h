@@ -85,17 +85,17 @@ extern int daemon(int, int);
 #endif
 #endif
 
+/* enable C99/POSIX format strings (needs mingw32-runtime 3.15 or later) */
+#ifdef __MINGW32__
+#define __USE_MINGW_ANSI_STDIO 1
+#endif
+
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
 #include <stdlib.h>
-
-/* enable C99/POSIX format strings (needs mingw32-runtime 3.15 or later) */
-#ifdef __MINGW32__
-#define __USE_MINGW_ANSI_STDIO 1
-#endif
 #include <stdio.h>
 
 #include <string.h>
@@ -569,19 +569,6 @@ void qemu_set_tty_echo(int fd, bool echo);
 
 void os_mem_prealloc(int fd, char *area, size_t sz, int smp_cpus,
                      Error **errp);
-
-/**
- * qemu_get_pmem_size:
- * @filename: path to a pmem file
- * @errp: pointer to a NULL-initialized error object
- *
- * Determine the size of a persistent memory file.  Besides supporting files on
- * DAX file systems, this function also supports Linux devdax character
- * devices.
- *
- * Returns: the size or 0 on failure
- */
-uint64_t qemu_get_pmem_size(const char *filename, Error **errp);
 
 /**
  * qemu_get_pid_name:
