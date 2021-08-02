@@ -20,7 +20,7 @@ bool postcopy_ram_supported_by_host(MigrationIncomingState *mis);
  * Make all of RAM sensitive to accesses to areas that haven't yet been written
  * and wire up anything necessary to deal with it.
  */
-int postcopy_ram_enable_notify(MigrationIncomingState *mis);
+int postcopy_ram_incoming_setup(MigrationIncomingState *mis);
 
 /*
  * Initialise postcopy-ram, setting the RAM to a state where we can go into
@@ -100,13 +100,6 @@ typedef enum {
     POSTCOPY_INCOMING_END
 } PostcopyState;
 
-/*
- * Allocate a page of memory that can be mapped at a later point in time
- * using postcopy_place_page
- * Returns: Pointer to allocated page
- */
-void *postcopy_get_tmp_page(MigrationIncomingState *mis);
-
 PostcopyState postcopy_state_get(void);
 /* Set the state and return the old state */
 PostcopyState postcopy_state_set(PostcopyState new_state);
@@ -168,7 +161,7 @@ struct PostCopyFD {
  */
 void postcopy_register_shared_ufd(struct PostCopyFD *pcfd);
 void postcopy_unregister_shared_ufd(struct PostCopyFD *pcfd);
-/* Call each of the shared 'waker's registerd telling them of
+/* Call each of the shared 'waker's registered telling them of
  * availability of a block.
  */
 int postcopy_notify_shared_wake(RAMBlock *rb, uint64_t offset);

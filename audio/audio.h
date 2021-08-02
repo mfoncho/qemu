@@ -28,6 +28,7 @@
 #include "qemu/queue.h"
 #include "qapi/qapi-types-audio.h"
 #include "hw/qdev-properties.h"
+#include "hw/qdev-properties-system.h"
 
 typedef void (*audio_callback_fn) (void *opaque, int avail);
 
@@ -60,7 +61,7 @@ typedef enum {
 
 struct audio_capture_ops {
     void (*notify) (void *opaque, audcnotification_e cmd);
-    void (*capture) (void *opaque, void *buf, int size);
+    void (*capture) (void *opaque, const void *buf, int size);
     void (*destroy) (void *opaque);
 };
 
@@ -124,6 +125,16 @@ uint64_t AUD_get_elapsed_usec_out (SWVoiceOut *sw, QEMUAudioTimeStamp *ts);
 void AUD_set_volume_out (SWVoiceOut *sw, int mute, uint8_t lvol, uint8_t rvol);
 void AUD_set_volume_in (SWVoiceIn *sw, int mute, uint8_t lvol, uint8_t rvol);
 
+#define AUDIO_MAX_CHANNELS 16
+typedef struct Volume {
+    bool mute;
+    int channels;
+    uint8_t vol[AUDIO_MAX_CHANNELS];
+} Volume;
+
+void audio_set_volume_out(SWVoiceOut *sw, Volume *vol);
+void audio_set_volume_in(SWVoiceIn *sw, Volume *vol);
+
 SWVoiceIn *AUD_open_in (
     QEMUSoundCard *card,
     SWVoiceIn *sw,
@@ -150,10 +161,9 @@ static inline void *advance (void *p, int incr)
 int wav_start_capture(AudioState *state, CaptureState *s, const char *path,
                       int freq, int bits, int nchannels);
 
-bool audio_is_cleaning_up(void);
 void audio_cleanup(void);
 
-void audio_sample_to_uint64(void *samples, int pos,
+void audio_sample_to_uint64(const void *samples, int pos,
                             uint64_t *left, uint64_t *right);
 void audio_sample_from_uint64(void *samples, int pos,
                             uint64_t left, uint64_t right);
